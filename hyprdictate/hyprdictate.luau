@@ -140,10 +140,13 @@ noctalia.runAsync("hyprctl instances -j", function(res)
   local socketPath = xdgRuntime .. "/hypr/" .. sig .. "/.socket2.sock"
 
   -- nc streams the socket line-by-line to stdout. OpenBSD-style
-  -- netcat is required for -U (Unix-domain) support. runStream
-  -- terminates the process automatically on script reload / entry
-  -- removal.
-  noctalia.runStream("nc -U '" .. socketPath .. "'", onLine)
+  -- netcat is required for -U (Unix-domain) support. When nc's
+  -- stdout is a pipe (not a TTY) glibc defaults to block-buffered
+  -- mode, so 30-byte state lines accumulate silently until 4KB
+  -- fills. `stdbuf -oL` forces line-buffering so onLine fires on
+  -- every event as intended. runStream terminates the process
+  -- automatically on script reload / entry removal.
+  noctalia.runStream("stdbuf -oL nc -U '" .. socketPath .. "'", onLine)
 end)
 
 -- Initial render with the default idle glyph. Fires before the
