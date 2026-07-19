@@ -1,0 +1,6 @@
+{
+  "settings.show_state_text.label": "Show state text",
+  "settings.show_state_text.description": "Display the state name (idle, recording, transcribing) next to the glyph. Off by default; the glyph alone is usually enough.",
+  "settings.transcript_preview_length.label": "Transcript preview length",
+  "settings.transcript_preview_length.description": "Maximum characters of the last transcript to show on hover. Reserved for a future release; not yet wired to a live transcript cache."
+}

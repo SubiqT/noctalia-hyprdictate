@@ -1,0 +1,51 @@
+# Bar widget for the hyprdictate voice dictation daemon + Hyprland
+# plugin. Shows recording state and lets the user click to toggle or
+# cancel.
+#
+# The plugin id follows Noctalia's <author>/<plugin> convention.
+# Per the community-plugins layout, the directory name must match
+# the part after the slash, so the plugin lives at `hyprdictate/`.
+
+id           = "subiqt/hyprdictate"
+name         = "Hyprdictate"
+version      = "0.1.0"
+# `plugin_api` is what the current Noctalia runtime requires (post
+# commit 6b36320, 2026-07-16). `min_noctalia` is what the pre-
+# migration runtime requires. Both are declared so the manifest
+# validates against either runtime; each ignores the key it does
+# not know. Missing min_noctalia in v0.1 of noctalia-hyprwsmode
+# tripped the pre-migration runtime, so it lands here from commit
+# one.
+plugin_api   = 4
+min_noctalia = "5.0.0"
+author       = "subiqt"
+license      = "MIT"
+description  = "Bar widget for hyprdictate: shows dictation state and toggles the compositor plugin."
+tags         = ["bar", "hyprland", "voice", "dictation", "indicator"]
+# `nc` streams Hyprland's socket2 UNIX socket in M3.2. OpenBSD-style
+# netcat is required for `-U` (Unix-domain) support; NixOS ships this
+# by default via libressl, and it is the standard `nc` on Arch,
+# Debian, and Fedora too. GNU netcat lacks `-U` and will not work.
+# hyprctl comes with Hyprland itself so it is not listed here.
+dependencies = ["nc"]
+
+[[widget]]
+id    = "hyprdictate"
+entry = "hyprdictate.luau"
+
+  # Settings landing in M3.4. Declared as scaffolding today so the
+  # UI order and defaults are stable from the first release.
+
+  [[widget.setting]]
+  key             = "show_state_text"
+  type            = "bool"
+  label_key       = "settings.show_state_text.label"
+  description_key = "settings.show_state_text.description"
+  default         = false
+
+  [[widget.setting]]
+  key             = "transcript_preview_length"
+  type            = "int"
+  label_key       = "settings.transcript_preview_length.label"
+  description_key = "settings.transcript_preview_length.description"
+  default         = 60
