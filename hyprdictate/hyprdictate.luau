@@ -82,16 +82,34 @@ local showStateText = noctalia.getConfig("show_state_text")
 -- day one.
 local _transcriptPreviewLength = noctalia.getConfig("transcript_preview_length")
 
+-- Display names for state values. Wire values are lowercase to
+-- match the daemon's formatState output; the widget's user-facing
+-- text capitalises for readability.
+local DISPLAY_NAME = {
+  idle         = "Idle",
+  recording    = "Recording",
+  transcribing = "Transcribing",
+  error        = "Error",
+  cancelled    = "Cancelled",
+}
+
 -- Default to Idle. See the bootstrap comment at the top of the file
 -- for the "starts mid-recording" caveat.
 local currentState = "idle"
 
 local function render()
-  local s = STATES[currentState] or STATES.idle
+  local s       = STATES[currentState] or STATES.idle
+  local display = DISPLAY_NAME[currentState] or currentState
   barWidget.setGlyph(s.glyph)
   barWidget.setGlyphColor(s.color)
-  barWidget.setText(showStateText and currentState or "")
-  barWidget.setTooltip("hyprdictate: " .. currentState)
+  barWidget.setText(showStateText and display or "")
+  -- Single-line tooltip with a discoverability hint. Noctalia
+  -- tooltips render inline in the bar's tooltip panel, so keeping
+  -- it short avoids awkward line wrapping.
+  barWidget.setTooltip(
+    "hyprdictate: " .. display ..
+    " · left click to toggle, right click to cancel"
+  )
   barWidget.setVisible(true)
 end
 
