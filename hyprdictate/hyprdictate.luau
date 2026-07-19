@@ -132,3 +132,34 @@ end)
 -- socket2 stream is up so the bar has something visible even in
 -- the tiny bootstrap window.
 render()
+
+-- ── Click actions ─────────────────────────────────────────────────
+--
+-- Route through the compositor plugin's dispatchers (registered as
+-- hyprdictate:toggle / hyprdictate:cancel). Firing the dispatcher
+-- rather than the daemon CLI is the design-doc-preferred path
+-- because the plugin captures the focused window on the Recording
+-- edge — bypassing the plugin here would give up deterministic-
+-- target injection. Failures (plugin not loaded, daemon down) are
+-- silent: hyprctl exits non-zero and the widget stays where it is,
+-- consistent with the "no error toasts" bootstrap policy above.
+--
+-- The dispatcher's own state broadcast lands back through onLine,
+-- so the widget's next render reflects the actual daemon state
+-- rather than an optimistic guess.
+
+function onClick()
+  noctalia.runAsync("hyprctl dispatch 'hl.plugin.hyprdictate.toggle()'")
+end
+
+function onRightClick()
+  noctalia.runAsync("hyprctl dispatch 'hl.plugin.hyprdictate.cancel()'")
+end
+
+-- onMiddleClick is reserved for reload once the daemon exposes it
+-- (M4 in the hyprdictate roadmap). Left unimplemented today so a
+-- stray middle-click doesn't fire hyprctl for a dispatcher that
+-- doesn't exist yet.
+-- function onMiddleClick()
+--   noctalia.runAsync("hyprdictate reload")
+-- end
