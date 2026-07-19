@@ -8,13 +8,18 @@ left click and cancel with a right click.
 
 ## Behaviour
 
-- **Glyph**: `microphone`, `player-record-filled`, `dots`,
-  `alert-triangle`, or `player-stop` depending on the daemon's
-  current state.
+- **Live waveform during recording**: a rolling ~2 s audio-level
+  graph is drawn inline in the widget, driven by 20 Hz Level events
+  from the daemon. Immediate visual confirmation that the mic is
+  hearing you.
+- **Pill for other states**: idle shows a `microphone` glyph with
+  no fill (blends with the bar); transcribing / error / cancelled
+  wrap a state glyph in a subtly tinted rounded pill (`dots`,
+  `alert-triangle`, `player-stop`).
 - **Colour**: follows the Noctalia palette — `primary` (idle),
   `error` (recording, error), `secondary` (transcribing), or
-  `outline` (cancelled). Theme changes retint the widget
-  automatically.
+  `outline` (cancelled). All fills use fractional-alpha palette
+  roles so theme changes retint the widget automatically.
 - **Left click**: `hl.plugin.hyprdictate.toggle()` on the
   compositor plugin. Starts / stops dictation. Because the
   dispatcher lives in the compositor plugin, the plugin captures
@@ -25,13 +30,18 @@ left click and cancel with a right click.
 - **Hover tooltip**: `hyprdictate: <state> · left click to toggle,
   right click to cancel`.
 
-All state is driven by Hyprland's socket2 stream (via a long-lived
-`nc -U` pipe), so the widget idles at zero CPU when nothing is
-changing.
+The widget subscribes directly to the daemon's unix socket
+(`$XDG_RUNTIME_DIR/hyprdictate.sock`) via a long-lived `nc -U`
+pipe, so it sees the full JSON event stream — state, level, and
+(in a future release) transcript. This decouples the widget from
+Hyprland's socket2 and means the widget renders correctly on any
+compositor as long as the daemon is running, though click actions
+still require the Hyprland-plugin path for deterministic-target
+injection.
 
-If the compositor plugin isn't loaded, or `nc` is missing, the
-widget stays visible with the idle glyph but never updates. It
-never emits an error toast — mirroring the design of the sibling
+If the daemon isn't running, or `nc` is missing, the widget stays
+visible with the idle glyph but never updates. It never emits an
+error toast — mirroring the design of the sibling
 `noctalia-hyprwsmode` widget.
 
 ## Requirements
@@ -141,20 +151,29 @@ are picked up on the next config reload.
 
 ## How it works
 
-At load, the widget starts by asking `hyprctl instances -j` for the
-current Hyprland session signature, then opens a single `nc -U
-<session>/.socket2.sock` stream via `noctalia.runStream`. One
-prefix is consumed:
+At load, the widget resolves `$XDG_RUNTIME_DIR` and opens a single
+`nc -U $XDG_RUNTIME_DIR/hyprdictate.sock` stream via
+`noctalia.runStream`. The daemon writes newline-delimited JSON, one
+envelope per line:
 
-- `hyprdictate>>state,<value>` — from the compositor plugin.
-  Records the daemon's current state.
+- `{"event":"state","value":"..."}` — daemon state transition. The
+  widget mirrors it into its render tree, clearing the rolling
+  level buffer on the Recording edge.
+- `{"event":"level","value":0.42}` — normalised audio envelope on
+  a dB-mapped 0..1 scale, emitted at 20 Hz while state is
+  Recording. The widget appends to a 40-point rolling window and
+  re-renders through `barWidget.render` so `ui.graph` shows the
+  live waveform.
+- `{"event":"transcript","text":"..."}` and `{"event":"error",...}`
+  are ignored today; transcript preview lands with the M4
+  transcript cache.
 
-Whenever the state changes the widget re-renders. There is no
-`setUpdateInterval` and no polling; the socket2 stream is the sole
-update trigger. Click actions call `hyprctl dispatch
+Whenever state or level changes the widget re-renders. There is no
+`setUpdateInterval` and no polling; the socket is the sole update
+trigger. Click actions call `hyprctl dispatch
 'hl.plugin.hyprdictate.<action>()'` and let the compositor plugin
-decide the next state, which returns to the widget through the
-same stream — no optimistic UI mutation.
+decide the next state, which returns through the same stream — no
+optimistic UI mutation.
 
 ## Non-goals
 
