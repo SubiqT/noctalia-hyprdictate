@@ -28,14 +28,13 @@ click, and cancels with a right click.
 - **Hover tooltip**: `hyprdictate: <state> · left click to toggle,
   right click to cancel`.
 
-All state is driven by Hyprland's socket2 stream (via a long-lived
-`nc -U` pipe), so the widget idles at zero CPU when nothing is
-changing.
+State and transcript previews are driven directly by the daemon's JSON socket
+through a reconnecting `nc -U` stream. The widget idles at zero CPU between
+events and reconnects automatically when the daemon restarts.
 
-If the compositor plugin isn't loaded, or `nc` is missing, the
-widget stays visible with the idle glyph but never updates. It
-never emits an error toast — mirroring the design of the sibling
-`noctalia-hyprwsmode` widget.
+If the daemon or `nc` is unavailable, the widget stays visible with the idle
+glyph and retries once a second. Click actions still require the compositor
+plugin because it owns start-window capture and final text injection.
 
 ## Requirements
 
@@ -144,27 +143,21 @@ are picked up on the next config reload.
 
 ## How it works
 
-At load, the widget starts by asking `hyprctl instances -j` for the
-current Hyprland session signature, then opens a single `nc -U
-<session>/.socket2.sock` stream via `noctalia.runStream`. One
-prefix is consumed:
+At load, the widget opens `$XDG_RUNTIME_DIR/hyprdictate.sock` through a
+reconnecting `nc -U` loop and consumes the daemon's line-delimited JSON:
 
-- `hyprdictate>>state,<value>` — records the daemon's current state.
-- `hyprdictate>>partial,<json-string>` — replaces the live preview.
-- `hyprdictate>>transcript,<json-string>` — records the finalized transcript.
+- `{"event":"state","value":"recording"}` updates the state.
+- `{"event":"transcript","text":"…","final":false}` replaces the live preview.
+- `{"event":"transcript","text":"…","final":true}` records the finalized transcript.
 
-Transcript payloads are JSON strings so commas, quotes, and newlines survive
-Hyprland's line-delimited socket2 transport. Whenever any event arrives the
-widget re-renders; there is no polling interval. Click actions call `hyprctl`
-with `hl.plugin.hyprdictate.<action>()` and let the compositor plugin decide
-the next state, which returns through the same stream without optimistic UI
-mutation.
+Whenever an event arrives the widget re-renders; there is no polling interval.
+Click actions call `hyprctl` with `hl.plugin.hyprdictate.<action>()` and let the
+compositor plugin capture the target window and inject only finalized text.
 
 ## Non-goals
 
-- Cross-compositor support. Hyprland-only, since the widget relies
-  on the hyprdictate compositor plugin's dispatchers and Hyprland's
-  socket2.
+- Cross-compositor actions. Preview events come directly from the daemon, but
+  start/cancel and deterministic final injection still use the Hyprland plugin.
 - Transcript history. The live and last-finalized previews are held only in
   memory for the current widget process; nothing is persisted.
 

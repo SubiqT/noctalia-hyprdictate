@@ -1,31 +1,33 @@
 local state = { text = "", tooltip = "", glyph = "", color = "", visible = false }
 local streamCallback = nil
+local streamCommand = nil
 
-local function decodeJsonString(input)
-  if input == '[{"instance":"test"}]' then
-    return { { instance = "test" } }
-  end
-  if input:sub(1, 1) ~= '"' or input:sub(-1) ~= '"' then
-    error("invalid JSON string")
-  end
-  local body = input:sub(2, -2)
-  local out = ""
-  local i = 1
-  while i <= #body do
-    local ch = body:sub(i, i)
-    if ch ~= "\\" then
-      out = out .. ch
-      i = i + 1
-    else
-      local escaped = body:sub(i + 1, i + 1)
-      local replacements = { ['"'] = '"', ['\\'] = '\\', n = '\n', r = '\r', t = '\t' }
-      if replacements[escaped] == nil then error("unsupported escape") end
-      out = out .. replacements[escaped]
-      i = i + 2
-    end
-  end
-  return out
-end
+local events = {
+  ['{"event":"status","state":"recording"}'] = {
+    event = "status", state = "recording",
+  },
+  ['{"event":"status","state":"idle"}'] = {
+    event = "status", state = "idle",
+  },
+  ['{"event":"state","value":"recording"}'] = {
+    event = "state", value = "recording",
+  },
+  ['{"event":"state","value":"cancelled"}'] = {
+    event = "state", value = "cancelled",
+  },
+  ['{"event":"state","value":"idle"}'] = {
+    event = "state", value = "idle",
+  },
+  ['{"event":"transcript","text":"hello, world","final":false}'] = {
+    event = "transcript", text = "hello, world", final = false,
+  },
+  ['{"event":"transcript","text":"say \\"hello\\"\\nnext","final":false}'] = {
+    event = "transcript", text = 'say "hello"\nnext', final = false,
+  },
+  ['{"event":"transcript","text":"final, text","final":true}'] = {
+    event = "transcript", text = "final, text", final = true,
+  },
+}
 
 noctalia = {
   getConfig = function(key)
@@ -33,17 +35,21 @@ noctalia = {
     if key == "transcript_preview_length" then return 60 end
     error("unexpected config key: " .. key)
   end,
-  json = { decode = decodeJsonString },
+  json = {
+    decode = function(input)
+      if events[input] == nil then error("invalid JSON") end
+      return events[input]
+    end,
+  },
   getenv = function(key)
     if key == "XDG_RUNTIME_DIR" then return "/run/user/1000" end
     return nil
   end,
-  runAsync = function(command, callback)
-    if command == "hyprctl instances -j" then
-      callback({ exitCode = 0, stdout = '[{"instance":"test"}]' })
-    end
+  runAsync = function() end,
+  runStream = function(command, callback)
+    streamCommand = command
+    streamCallback = callback
   end,
-  runStream = function(_, callback) streamCallback = callback end,
 }
 
 barWidget = {
@@ -55,23 +61,32 @@ barWidget = {
 }
 
 assert(loadfile("hyprdictate/hyprdictate.luau"))()
-assert(streamCallback ~= nil, "socket2 callback was not registered")
+assert(streamCallback ~= nil, "daemon socket callback was not registered")
+assert(streamCommand:find("/run/user/1000/hyprdictate.sock", 1, true),
+       "widget must subscribe directly to daemon socket")
+assert(streamCommand:find("while true", 1, true), "socket stream must reconnect")
 assert(state.glyph == "microphone" and state.visible, "initial idle render")
 
-streamCallback("hyprdictate>>state,recording")
-streamCallback('hyprdictate>>partial,"hello, world"')
-assert(state.text == "hello, world", "comma-containing partial")
+streamCallback('{"event":"status","state":"recording"}')
+streamCallback('{"event":"transcript","text":"hello, world","final":false}')
+assert(state.text == "hello, world", "partial visible after recording reconnect snapshot")
 
-streamCallback('hyprdictate>>partial,"say \\"hello\\"\\nnext"')
+streamCallback('{"event":"transcript","text":"say \\"hello\\"\\nnext","final":false}')
 assert(state.text == 'say "hello"\nnext', "escaped quote/newline partial")
 local beforeInvalid = state.text
-streamCallback("hyprdictate>>partial,not-json")
+streamCallback("not-json")
 assert(state.text == beforeInvalid, "invalid JSON must not replace preview")
 
-streamCallback("hyprdictate>>state,cancelled")
+streamCallback('{"event":"status","state":"idle"}')
+assert(state.glyph == "microphone" and state.text == "",
+       "idle reconnect snapshot clears stale preview")
+streamCallback('{"event":"state","value":"recording"}')
+streamCallback('{"event":"transcript","text":"hello, world","final":false}')
+
+streamCallback('{"event":"state","value":"cancelled"}')
 assert(state.glyph == "player-stop", "cancelled glyph")
 assert(state.text == "", "cancel clears live preview")
 
-streamCallback("hyprdictate>>state,idle")
-streamCallback('hyprdictate>>transcript,"final, text"')
+streamCallback('{"event":"state","value":"idle"}')
+streamCallback('{"event":"transcript","text":"final, text","final":true}')
 assert(state.tooltip:find("final, text", 1, true), "final transcript in idle tooltip")

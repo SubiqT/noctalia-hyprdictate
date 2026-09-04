@@ -1,11 +1,9 @@
 --!nonstrict
 
--- Bar widget for hyprdictate. The Hyprland plugin forwards daemon state and
--- JSON-encoded partial/final transcripts over socket2:
---
---   hyprdictate>>state,<idle|recording|transcribing|error|cancelled>
---   hyprdictate>>partial,"replaceable text"
---   hyprdictate>>transcript,"final text"
+-- Live Moonshine transcript preview for hyprdictate. This widget subscribes
+-- directly to the daemon's line-delimited JSON socket so partial hypotheses do
+-- not depend on compositor event forwarding. Final text remains the only text
+-- injected into applications by the Hyprland plugin.
 
 local STATES = {
   idle = { glyph = "microphone", color = "primary" },
@@ -46,11 +44,8 @@ local function render()
 
   barWidget.setGlyph(state.glyph)
   barWidget.setGlyphColor(state.color)
-  if live ~= "" then
-    barWidget.setText(truncate(live))
-  else
-    barWidget.setText(showStateText and display or "")
-  end
+  barWidget.setText(live ~= "" and truncate(live)
+                    or (showStateText and display or ""))
 
   local detail = live
   if detail == "" and currentState == "idle" then detail = lastTranscript end
@@ -61,58 +56,52 @@ local function render()
   barWidget.setVisible(true)
 end
 
-local function decodeTranscript(payload)
-  local ok, value = pcall(noctalia.json.decode, payload)
-  if not ok or type(value) ~= "string" then return nil end
-  return value
-end
-
 local function onLine(line)
-  local state = line:match("^hyprdictate>>state,(%a+)")
-  if state ~= nil and STATES[state] ~= nil then
-    if state == "recording" and currentState ~= "recording" then
-      currentPreview = ""
-    elseif state == "cancelled" or state == "error" then
-      currentPreview = ""
-    end
-    currentState = state
+  local ok, event = pcall(noctalia.json.decode, line)
+  if not ok or type(event) ~= "table" then return end
+
+  if event.event == "status" and type(event.state) == "string"
+      and STATES[event.state] ~= nil then
+    currentState = event.state
+    currentPreview = ""
+    if currentState == "idle" then lastTranscript = "" end
     render()
     return
   end
 
-  local partial = line:match("^hyprdictate>>partial,(.+)$")
-  if partial ~= nil then
-    local text = decodeTranscript(partial)
-    if text ~= nil then
-      currentPreview = text
-      render()
+  if event.event == "state" and type(event.value) == "string"
+      and STATES[event.value] ~= nil then
+    if event.value == "recording" and currentState ~= "recording" then
+      currentPreview = ""
+    elseif event.value == "cancelled" or event.value == "error" then
+      currentPreview = ""
     end
+    currentState = event.value
+    render()
     return
   end
 
-  local final = line:match("^hyprdictate>>transcript,(.+)$")
-  if final ~= nil then
-    local text = decodeTranscript(final)
-    if text ~= nil then
-      currentPreview = text
-      lastTranscript = text
-      render()
-    end
+  if event.event == "transcript" and type(event.text) == "string" then
+    currentPreview = event.text
+    if event.final == true then lastTranscript = event.text end
+    render()
   end
 end
 
-noctalia.runAsync("hyprctl instances -j", function(res)
-  if res.exitCode ~= 0 then return end
-  local instances = noctalia.json.decode(res.stdout)
-  if type(instances) ~= "table" or #instances == 0 then return end
-  local sig = instances[1].instance
-  if type(sig) ~= "string" or sig == "" then return end
+local function shellQuote(value)
+  return "'" .. value:gsub("'", "'\"'\"'") .. "'"
+end
 
-  local xdgRuntime = noctalia.getenv("XDG_RUNTIME_DIR")
-  if xdgRuntime == nil or xdgRuntime == "" then return end
-  local socketPath = xdgRuntime .. "/hypr/" .. sig .. "/.socket2.sock"
-  noctalia.runStream("stdbuf -oL nc -U '" .. socketPath .. "'", onLine)
-end)
+local xdgRuntime = noctalia.getenv("XDG_RUNTIME_DIR")
+if xdgRuntime ~= nil and xdgRuntime ~= "" then
+  local socketPath = xdgRuntime .. "/hyprdictate.sock"
+  -- The daemon and shell start independently during a graphical-session
+  -- switch. Reconnect once a second whenever nc exits so whichever starts
+  -- first eventually observes the other without reloading Noctalia.
+  local script = "while true; do stdbuf -oL nc -U " ..
+                 shellQuote(socketPath) .. "; sleep 1; done"
+  noctalia.runStream("sh -c " .. shellQuote(script), onLine)
+end
 
 render()
 

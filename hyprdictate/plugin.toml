@@ -22,11 +22,10 @@ author       = "subiqt"
 license      = "MIT"
 description  = "Bar widget for hyprdictate: shows state and a live streaming transcript preview."
 tags         = ["bar", "hyprland", "voice", "dictation", "indicator"]
-# `nc` streams Hyprland's socket2 UNIX socket in M3.2. OpenBSD-style
-# netcat is required for `-U` (Unix-domain) support; NixOS ships this
-# by default via libressl, and it is the standard `nc` on Arch,
-# Debian, and Fedora too. GNU netcat lacks `-U` and will not work.
-# hyprctl comes with Hyprland itself so it is not listed here.
+# `nc` streams the daemon's UNIX socket. OpenBSD-style netcat is required for
+# `-U`; NixOS ships this via libressl, and it is standard on Arch, Debian, and
+# Fedora. GNU netcat lacks `-U` and will not work. hyprctl comes with Hyprland
+# itself so it is not listed here.
 dependencies = ["nc"]
 
 [[widget]]
