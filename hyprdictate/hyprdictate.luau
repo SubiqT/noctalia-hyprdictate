@@ -1,132 +1,105 @@
 --!nonstrict
 
--- Bar widget for the hyprdictate voice dictation stack (daemon +
--- Hyprland compositor plugin).
---
--- Subscribes to Hyprland's socket2 stream via a long-lived nc
--- process and filters the single prefix the compositor plugin
--- emits:
+-- Bar widget for hyprdictate. The Hyprland plugin forwards daemon state and
+-- JSON-encoded partial/final transcripts over socket2:
 --
 --   hyprdictate>>state,<idle|recording|transcribing|error|cancelled>
---
--- Every state transition delivered by the plugin updates the glyph,
--- glyph colour, and tooltip. Redundant emits are already suppressed
--- upstream (the plugin dedups against prev-state), so no widget-side
--- filtering is needed.
---
--- Bootstrap at load time:
---   1. `hyprctl instances -j`  discover the current session
---      signature so we can build the socket2 path even when
---      HYPRLAND_INSTANCE_SIGNATURE is not in Noctalia's env.
---   2. Start `nc -U .../.socket2.sock` via runStream. The compositor
---      plugin does not re-broadcast state on connect (it only emits
---      on transitions), so the widget defaults to "idle" and picks
---      up the real state on the next actual transition. In the
---      normal case (widget rebuilt / Noctalia reload while the
---      daemon is idle) this is invisible; the rare case of reloading
---      mid-recording briefly shows idle before the next state event.
---
--- Graceful degradation: no error toasts anywhere. If the compositor
--- plugin is not loaded, `hyprdictate>>` lines never arrive; the
--- widget stays in the idle default. If `nc` is missing or lacks -U
--- (GNU netcat), the shell command exits and the same non-render
--- path applies.
+--   hyprdictate>>partial,"replaceable text"
+--   hyprdictate>>transcript,"final text"
 
--- State → visual mapping, per hyprdictate's design doc:
---
---   idle          microphone            primary
---   recording     player-record-filled  error
---   transcribing  dots                  secondary
---   error         alert-triangle        error
---   cancelled     player-stop           outline   (transient; the
---                                                  plugin emits
---                                                  Idle immediately
---                                                  after, so this
---                                                  reads as a brief
---                                                  flash)
---
--- Glyph slugs are Tabler icon names (Noctalia's default icon set).
--- Palette roles are Noctalia palette identifiers; changing the
--- shell theme retints the widget automatically because the widget
--- refers to roles rather than hex.
 local STATES = {
-  idle = {
-    glyph = "microphone",
-    color = "primary",
-  },
-  recording = {
-    glyph = "player-record-filled",
-    color = "error",
-  },
-  transcribing = {
-    glyph = "dots",
-    color = "secondary",
-  },
-  error = {
-    glyph = "alert-triangle",
-    color = "error",
-  },
-  cancelled = {
-    glyph = "player-stop",
-    color = "outline",
-  },
+  idle = { glyph = "microphone", color = "primary" },
+  recording = { glyph = "player-record-filled", color = "error" },
+  transcribing = { glyph = "dots", color = "secondary" },
+  error = { glyph = "alert-triangle", color = "error" },
+  cancelled = { glyph = "player-stop", color = "outline" },
 }
 
--- Settings read once at load. Noctalia rebuilds the widget entry on
--- any settings change, so caching in locals is safe and cheaper than
--- a noctalia.getConfig call per render.
-local showStateText = noctalia.getConfig("show_state_text")
-
--- Reserved for M4 (transcript preview in tooltip). Parsed now so
--- the wire between the manifest and the runtime is exercised from
--- day one.
-local _transcriptPreviewLength = noctalia.getConfig("transcript_preview_length")
-
--- Display names for state values. Wire values are lowercase to
--- match the daemon's formatState output; the widget's user-facing
--- text capitalises for readability.
 local DISPLAY_NAME = {
-  idle         = "Idle",
-  recording    = "Recording",
+  idle = "Idle",
+  recording = "Recording",
   transcribing = "Transcribing",
-  error        = "Error",
-  cancelled    = "Cancelled",
+  error = "Error",
+  cancelled = "Cancelled",
 }
 
--- Default to Idle. See the bootstrap comment at the top of the file
--- for the "starts mid-recording" caveat.
+local showStateText = noctalia.getConfig("show_state_text")
+local previewLength = tonumber(noctalia.getConfig("transcript_preview_length")) or 60
+if previewLength < 1 then previewLength = 1 end
+
 local currentState = "idle"
+local currentPreview = ""
+local lastTranscript = ""
+
+local function truncate(text)
+  if #text <= previewLength then return text end
+  return text:sub(1, previewLength) .. "…"
+end
 
 local function render()
-  local s       = STATES[currentState] or STATES.idle
+  local state = STATES[currentState] or STATES.idle
   local display = DISPLAY_NAME[currentState] or currentState
-  barWidget.setGlyph(s.glyph)
-  barWidget.setGlyphColor(s.color)
-  barWidget.setText(showStateText and display or "")
-  -- Single-line tooltip with a discoverability hint. Noctalia
-  -- tooltips render inline in the bar's tooltip panel, so keeping
-  -- it short avoids awkward line wrapping.
-  barWidget.setTooltip(
-    "hyprdictate: " .. display ..
-    " · left click to toggle, right click to cancel"
-  )
+  local live = ""
+  if currentState == "recording" or currentState == "transcribing" then
+    live = currentPreview
+  end
+
+  barWidget.setGlyph(state.glyph)
+  barWidget.setGlyphColor(state.color)
+  if live ~= "" then
+    barWidget.setText(truncate(live))
+  else
+    barWidget.setText(showStateText and display or "")
+  end
+
+  local detail = live
+  if detail == "" and currentState == "idle" then detail = lastTranscript end
+  local tooltip = "hyprdictate: " .. display
+  if detail ~= "" then tooltip = tooltip .. " · " .. truncate(detail) end
+  tooltip = tooltip .. " · left click to toggle, right click to cancel"
+  barWidget.setTooltip(tooltip)
   barWidget.setVisible(true)
 end
 
--- ── socket2 line parser ────────────────────────────────────────────
-
-local function onLine(line)
-  -- hyprdictate>>state,<value>. Match one of the five known state
-  -- names to avoid tripping on a malformed line or a future value
-  -- this widget doesn't understand.
-  local value = line:match("^hyprdictate>>state,(%a+)")
-  if value == nil then return end
-  if STATES[value] == nil then return end
-  currentState = value
-  render()
+local function decodeTranscript(payload)
+  local ok, value = pcall(noctalia.json.decode, payload)
+  if not ok or type(value) ~= "string" then return nil end
+  return value
 end
 
--- ── Bootstrap: discover the Hyprland instance, then start the stream
+local function onLine(line)
+  local state = line:match("^hyprdictate>>state,(%a+)")
+  if state ~= nil and STATES[state] ~= nil then
+    if state == "recording" and currentState ~= "recording" then
+      currentPreview = ""
+    elseif state == "cancelled" or state == "error" then
+      currentPreview = ""
+    end
+    currentState = state
+    render()
+    return
+  end
+
+  local partial = line:match("^hyprdictate>>partial,(.+)$")
+  if partial ~= nil then
+    local text = decodeTranscript(partial)
+    if text ~= nil then
+      currentPreview = text
+      render()
+    end
+    return
+  end
+
+  local final = line:match("^hyprdictate>>transcript,(.+)$")
+  if final ~= nil then
+    local text = decodeTranscript(final)
+    if text ~= nil then
+      currentPreview = text
+      lastTranscript = text
+      render()
+    end
+  end
+end
 
 noctalia.runAsync("hyprctl instances -j", function(res)
   if res.exitCode ~= 0 then return end
@@ -138,36 +111,10 @@ noctalia.runAsync("hyprctl instances -j", function(res)
   local xdgRuntime = noctalia.getenv("XDG_RUNTIME_DIR")
   if xdgRuntime == nil or xdgRuntime == "" then return end
   local socketPath = xdgRuntime .. "/hypr/" .. sig .. "/.socket2.sock"
-
-  -- nc streams the socket line-by-line to stdout. OpenBSD-style
-  -- netcat is required for -U (Unix-domain) support. When nc's
-  -- stdout is a pipe (not a TTY) glibc defaults to block-buffered
-  -- mode, so 30-byte state lines accumulate silently until 4KB
-  -- fills. `stdbuf -oL` forces line-buffering so onLine fires on
-  -- every event as intended. runStream terminates the process
-  -- automatically on script reload / entry removal.
   noctalia.runStream("stdbuf -oL nc -U '" .. socketPath .. "'", onLine)
 end)
 
--- Initial render with the default idle glyph. Fires before the
--- socket2 stream is up so the bar has something visible even in
--- the tiny bootstrap window.
 render()
-
--- ── Click actions ─────────────────────────────────────────────────
---
--- Route through the compositor plugin's dispatchers (registered as
--- hyprdictate:toggle / hyprdictate:cancel). Firing the dispatcher
--- rather than the daemon CLI is the design-doc-preferred path
--- because the plugin captures the focused window on the Recording
--- edge — bypassing the plugin here would give up deterministic-
--- target injection. Failures (plugin not loaded, daemon down) are
--- silent: hyprctl exits non-zero and the widget stays where it is,
--- consistent with the "no error toasts" bootstrap policy above.
---
--- The dispatcher's own state broadcast lands back through onLine,
--- so the widget's next render reflects the actual daemon state
--- rather than an optimistic guess.
 
 function onClick()
   noctalia.runAsync("hyprctl dispatch 'hl.plugin.hyprdictate.toggle()'")
@@ -176,11 +123,3 @@ end
 function onRightClick()
   noctalia.runAsync("hyprctl dispatch 'hl.plugin.hyprdictate.cancel()'")
 end
-
--- onMiddleClick is reserved for reload once the daemon exposes it
--- (M4 in the hyprdictate roadmap). Left unimplemented today so a
--- stray middle-click doesn't fire hyprctl for a dispatcher that
--- doesn't exist yet.
--- function onMiddleClick()
---   noctalia.runAsync("hyprdictate reload")
--- end

@@ -1,4 +1,4 @@
-{ lib, stdenvNoCC, nix-gitignore }:
+{ lib, stdenvNoCC, nix-gitignore, lua5_4 }:
 
 # Static plugin bundle. No compilation needed: the plugin is a
 # directory of Luau + TOML files that Noctalia loads at runtime.
@@ -28,6 +28,12 @@ stdenvNoCC.mkDerivation {
   # by .gitignore so the store path is the same bytes for the same
   # commit regardless of the developer's checkout state.
   src = nix-gitignore.gitignoreSource [ ] ./.;
+
+  nativeCheckInputs = [ lua5_4 ];
+  doCheck = true;
+  checkPhase = ''
+    lua tests/widget_test.lua
+  '';
 
   # No build. Copy the plugin directory verbatim so Noctalia's
   # source scan finds `hyprdictate/plugin.toml` at the expected

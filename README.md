@@ -2,9 +2,9 @@
 
 [Noctalia](https://noctalia.dev) bar widget for the
 [hyprdictate](https://github.com/SubiqT/hyprdictate) voice dictation
-daemon and its Hyprland compositor plugin. Shows dictation state
-(idle / recording / transcribing / error), lets you toggle with a
-left click and cancel with a right click.
+daemon and its Hyprland compositor plugin. Shows dictation state and a live,
+replaceable Moonshine transcript while you speak, lets you toggle with a left
+click, and cancels with a right click.
 
 ## Behaviour
 
@@ -16,10 +16,13 @@ left click and cancel with a right click.
   `outline` (cancelled). Theme changes retint the widget
   automatically.
 - **Left click**: `hl.plugin.hyprdictate.toggle()` on the
-  compositor plugin. Starts / stops dictation. Because the
-  dispatcher lives in the compositor plugin, the plugin captures
-  the focused window on the Recording edge and injects into that
-  same window when the transcript arrives.
+  compositor plugin. Starts / stops dictation. Because the dispatcher lives in
+  the compositor plugin, it captures the focused window on the Recording edge
+  and injects into that same window when the final transcript arrives.
+- **Live transcript**: while recording or finalizing, replaceable partial text
+  appears beside the glyph and in the tooltip. Partial hypotheses are preview
+  only; hyprdictate injects only Moonshine's finalized result. The last final
+  transcript remains in the idle tooltip until the next recording starts.
 - **Right click**: `hl.plugin.hyprdictate.cancel()`. Discards any
   in-flight recording.
 - **Hover tooltip**: `hyprdictate: <state> · left click to toggle,
@@ -122,7 +125,7 @@ configuration:
 | Setting                     | Type   | Default | Description                                                                                              |
 | ---                         | ---    | ---     | ---                                                                                                      |
 | `show_state_text`           | `bool` | `false` | Show the state name (Idle, Recording, Transcribing, …) next to the glyph.                                |
-| `transcript_preview_length` | `int`  | `60`    | Reserved. Max chars of the last transcript to show on hover; wired up when the transcript cache lands.   |
+| `transcript_preview_length` | `int`  | `60`    | Maximum characters of the live or last finalized transcript shown in bar text and tooltip.                          |
 
 Colours follow Noctalia's palette roles so they track theme
 changes automatically.
@@ -146,23 +149,24 @@ current Hyprland session signature, then opens a single `nc -U
 <session>/.socket2.sock` stream via `noctalia.runStream`. One
 prefix is consumed:
 
-- `hyprdictate>>state,<value>` — from the compositor plugin.
-  Records the daemon's current state.
+- `hyprdictate>>state,<value>` — records the daemon's current state.
+- `hyprdictate>>partial,<json-string>` — replaces the live preview.
+- `hyprdictate>>transcript,<json-string>` — records the finalized transcript.
 
-Whenever the state changes the widget re-renders. There is no
-`setUpdateInterval` and no polling; the socket2 stream is the sole
-update trigger. Click actions call `hyprctl dispatch
-'hl.plugin.hyprdictate.<action>()'` and let the compositor plugin
-decide the next state, which returns to the widget through the
-same stream — no optimistic UI mutation.
+Transcript payloads are JSON strings so commas, quotes, and newlines survive
+Hyprland's line-delimited socket2 transport. Whenever any event arrives the
+widget re-renders; there is no polling interval. Click actions call `hyprctl`
+with `hl.plugin.hyprdictate.<action>()` and let the compositor plugin decide
+the next state, which returns through the same stream without optimistic UI
+mutation.
 
 ## Non-goals
 
 - Cross-compositor support. Hyprland-only, since the widget relies
   on the hyprdictate compositor plugin's dispatchers and Hyprland's
   socket2.
-- Transcript history. The widget receives transcripts (in a future
-  hyprdictate release) only for tooltip preview; nothing persists.
+- Transcript history. The live and last-finalized previews are held only in
+  memory for the current widget process; nothing is persisted.
 
 ## Licence
 

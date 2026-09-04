@@ -20,7 +20,7 @@ plugin_api   = 4
 min_noctalia = "5.0.0"
 author       = "subiqt"
 license      = "MIT"
-description  = "Bar widget for hyprdictate: shows dictation state and toggles the compositor plugin."
+description  = "Bar widget for hyprdictate: shows state and a live streaming transcript preview."
 tags         = ["bar", "hyprland", "voice", "dictation", "indicator"]
 # `nc` streams Hyprland's socket2 UNIX socket in M3.2. OpenBSD-style
 # netcat is required for `-U` (Unix-domain) support; NixOS ships this
@@ -33,8 +33,7 @@ dependencies = ["nc"]
 id    = "hyprdictate"
 entry = "hyprdictate.luau"
 
-  # Settings landing in M3.4. Declared as scaffolding today so the
-  # UI order and defaults are stable from the first release.
+  # Per-widget display settings.
 
   [[widget.setting]]
   key             = "show_state_text"
