@@ -52,16 +52,21 @@ panel = {
 assert(loadfile("hyprdictate/preview.luau"))()
 assert(watchCallback ~= nil, "panel must watch shared dictation state")
 assert(rendered ~= nil and rendered.type == "column", "panel renders a root column")
+assert(rendered.props.flexGrow == 1, "root fills the panel instead of leaving blank space")
+assert(rendered.props.padding == 12 and rendered.props.gap == 8,
+       "compact panel uses measured padding")
 assert(closed == 0, "recording panel remains open")
 
 local scroll = rendered.children[2]
 assert(scroll.type == "scroll" and scroll.props.flexGrow == 1,
        "transcript uses a growing scroll viewport")
+assert(scroll.props.padding == 8 and scroll.props.radius == 8,
+       "scroll viewport uses compact measured insets")
 assert(scroll.props.stickToBottom == true, "latest transcript remains visible")
 local transcript = scroll.children[1]
 assert(transcript.type == "label", "transcript renders as a label")
 assert(transcript.props.text == "first line\nsecond line", "newlines are preserved")
-assert(transcript.props.maxWidth == 456, "label has a wrapping width")
+assert(transcript.props.maxWidth == 480, "label uses the measured inner wrapping width")
 assert(transcript.props.maxLines == 0, "label has no line truncation")
 
 local longText = string.rep("wrapped words ", 60) .. "\nnew paragraph"

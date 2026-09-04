@@ -125,8 +125,16 @@ configuration:
 | ---                         | ---    | ---     | ---                                                                                                      |
 | `show_state_text` | `bool` | `false` | Show the state name next to the glyph. The transcript always remains in the panel. |
 
-The transcript panel is 520×280 logical pixels, attached to Noctalia's panel
-anchor bar, non-interactive, and scrolls as wrapped content grows.
+The transcript panel requests 520×132 logical pixels; on Noctalia 5.0.1 its
+attached layer surface measures approximately 572×148 including host chrome—
+exactly half the previous 296px surface height. The root fills that area and
+allocates the remaining height to a 3–4 line wrapped scroll viewport.
+
+For NixOS integration, filter the exact `^hyprdictate$` PipeWire node identity
+via `shell.privacy.mic_filter_regex`. Noctalia applies that filter to both its
+privacy OSD and privacy bar indicator; hyprdictate's own bar glyph and panel
+provide the recording indication instead, while other capture apps still use
+Noctalia's privacy UI.
 
 Colours follow Noctalia's palette roles so they track theme
 changes automatically.

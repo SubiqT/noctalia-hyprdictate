@@ -41,11 +41,12 @@ local function render()
   local revision = tonumber(snapshot.revision) or 0
 
   panel.render(ui.column({
-    padding = 16,
-    gap = 12,
+    flexGrow = 1,
+    padding = 12,
+    gap = 8,
   }, {
     ui.row({
-      gap = 10,
+      gap = 8,
       align = "center",
     }, {
       ui.glyph({
@@ -67,9 +68,9 @@ local function render()
     }),
     ui.scroll({
       flexGrow = 1,
-      padding = 12,
+      padding = 8,
       fill = "surface_container",
-      radius = 10,
+      radius = 8,
       stickToBottom = true,
       scrollToBottomRev = revision,
     }, {
@@ -77,7 +78,7 @@ local function render()
         key = "transcript",
         text = transcriptText(),
         color = "on_surface",
-        maxWidth = 456,
+        maxWidth = 480,
         maxLines = 0,
         textAlign = "start",
       }),
