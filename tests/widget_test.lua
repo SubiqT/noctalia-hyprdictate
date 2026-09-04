@@ -1,23 +1,15 @@
-local state = { text = "", tooltip = "", glyph = "", color = "", visible = false }
+local bar = { text = "", tooltip = "", glyph = "", color = "", visible = false }
 local streamCallback = nil
 local streamCommand = nil
+local shared = {}
+local toggledPanels = {}
 
 local events = {
-  ['{"event":"status","state":"recording"}'] = {
-    event = "status", state = "recording",
-  },
-  ['{"event":"status","state":"idle"}'] = {
-    event = "status", state = "idle",
-  },
-  ['{"event":"state","value":"recording"}'] = {
-    event = "state", value = "recording",
-  },
-  ['{"event":"state","value":"cancelled"}'] = {
-    event = "state", value = "cancelled",
-  },
-  ['{"event":"state","value":"idle"}'] = {
-    event = "state", value = "idle",
-  },
+  ['{"event":"status","state":"recording"}'] = { event = "status", state = "recording" },
+  ['{"event":"status","state":"idle"}'] = { event = "status", state = "idle" },
+  ['{"event":"state","value":"recording"}'] = { event = "state", value = "recording" },
+  ['{"event":"state","value":"cancelled"}'] = { event = "state", value = "cancelled" },
+  ['{"event":"state","value":"idle"}'] = { event = "state", value = "idle" },
   ['{"event":"transcript","text":"hello, world","final":false}'] = {
     event = "transcript", text = "hello, world", final = false,
   },
@@ -32,7 +24,6 @@ local events = {
 noctalia = {
   getConfig = function(key)
     if key == "show_state_text" then return false end
-    if key == "transcript_preview_length" then return 60 end
     error("unexpected config key: " .. key)
   end,
   json = {
@@ -41,6 +32,10 @@ noctalia = {
       return events[input]
     end,
   },
+  state = {
+    set = function(key, value) shared[key] = value end,
+  },
+  togglePanel = function(id) table.insert(toggledPanels, id) end,
   getenv = function(key)
     if key == "XDG_RUNTIME_DIR" then return "/run/user/1000" end
     return nil
@@ -53,11 +48,11 @@ noctalia = {
 }
 
 barWidget = {
-  setGlyph = function(value) state.glyph = value end,
-  setGlyphColor = function(value) state.color = value end,
-  setText = function(value) state.text = value end,
-  setTooltip = function(value) state.tooltip = value end,
-  setVisible = function(value) state.visible = value end,
+  setGlyph = function(value) bar.glyph = value end,
+  setGlyphColor = function(value) bar.color = value end,
+  setText = function(value) bar.text = value end,
+  setTooltip = function(value) bar.tooltip = value end,
+  setVisible = function(value) bar.visible = value end,
 }
 
 assert(loadfile("hyprdictate/hyprdictate.luau"))()
@@ -65,28 +60,36 @@ assert(streamCallback ~= nil, "daemon socket callback was not registered")
 assert(streamCommand:find("/run/user/1000/hyprdictate.sock", 1, true),
        "widget must subscribe directly to daemon socket")
 assert(streamCommand:find("while true", 1, true), "socket stream must reconnect")
-assert(state.glyph == "microphone" and state.visible, "initial idle render")
+assert(bar.glyph == "microphone" and bar.visible, "initial idle render")
+assert(bar.text == "", "idle bar is glyph-only by default")
+assert(shared.dictation.state == "idle", "initial state published for panel")
 
 streamCallback('{"event":"status","state":"recording"}')
+assert(#toggledPanels == 1 and toggledPanels[1] == "subiqt/hyprdictate:preview",
+       "recording edge opens attached preview panel")
 streamCallback('{"event":"transcript","text":"hello, world","final":false}')
-assert(state.text == "hello, world", "partial visible after recording reconnect snapshot")
+assert(bar.text == "", "partial transcript must not change bar width")
+assert(shared.dictation.preview == "hello, world", "partial published to panel")
 
 streamCallback('{"event":"transcript","text":"say \\"hello\\"\\nnext","final":false}')
-assert(state.text == 'say "hello"\nnext', "escaped quote/newline partial")
-local beforeInvalid = state.text
+assert(shared.dictation.preview == 'say "hello"\nnext',
+       "newlines and quotes preserved in panel buffer")
+local beforeInvalid = shared.dictation.preview
 streamCallback("not-json")
-assert(state.text == beforeInvalid, "invalid JSON must not replace preview")
+assert(shared.dictation.preview == beforeInvalid, "invalid JSON must not replace preview")
 
 streamCallback('{"event":"status","state":"idle"}')
-assert(state.glyph == "microphone" and state.text == "",
-       "idle reconnect snapshot clears stale preview")
-streamCallback('{"event":"state","value":"recording"}')
-streamCallback('{"event":"transcript","text":"hello, world","final":false}')
+assert(bar.glyph == "microphone" and bar.text == "", "idle snapshot stays compact")
+assert(shared.dictation.preview == "", "idle reconnect clears stale preview")
 
+streamCallback('{"event":"state","value":"recording"}')
+assert(#toggledPanels == 2, "new recording opens preview again")
+streamCallback('{"event":"transcript","text":"hello, world","final":false}')
 streamCallback('{"event":"state","value":"cancelled"}')
-assert(state.glyph == "player-stop", "cancelled glyph")
-assert(state.text == "", "cancel clears live preview")
+assert(bar.glyph == "player-stop", "cancelled glyph")
+assert(shared.dictation.preview == "", "cancel clears panel buffer")
 
 streamCallback('{"event":"state","value":"idle"}')
 streamCallback('{"event":"transcript","text":"final, text","final":true}')
-assert(state.tooltip:find("final, text", 1, true), "final transcript in idle tooltip")
+assert(shared.dictation.final == "final, text", "final transcript published")
+assert(bar.text == "", "final transcript never renders inline")

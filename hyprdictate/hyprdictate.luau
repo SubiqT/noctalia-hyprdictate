@@ -1,9 +1,11 @@
 --!nonstrict
 
--- Live Moonshine transcript preview for hyprdictate. This widget subscribes
--- directly to the daemon's line-delimited JSON socket so partial hypotheses do
--- not depend on compositor event forwarding. Final text remains the only text
--- injected into applications by the Hyprland plugin.
+-- Hyprdictate bar control. Live hypotheses are published through the plugin's
+-- shared state and rendered by the attached preview panel, never inline in the
+-- bar, so transcript growth cannot change bar spacing.
+
+local PANEL_ID = "subiqt/hyprdictate:preview"
+local STATE_KEY = "dictation"
 
 local STATES = {
   idle = { glyph = "microphone", color = "primary" },
@@ -22,38 +24,57 @@ local DISPLAY_NAME = {
 }
 
 local showStateText = noctalia.getConfig("show_state_text")
-local previewLength = tonumber(noctalia.getConfig("transcript_preview_length")) or 60
-if previewLength < 1 then previewLength = 1 end
-
 local currentState = "idle"
 local currentPreview = ""
 local lastTranscript = ""
+local revision = 0
 
-local function truncate(text)
-  if #text <= previewLength then return text end
-  return text:sub(1, previewLength) .. "…"
+local function publish()
+  revision = revision + 1
+  noctalia.state.set(STATE_KEY, {
+    state = currentState,
+    preview = currentPreview,
+    final = lastTranscript,
+    revision = revision,
+  })
 end
 
 local function render()
   local state = STATES[currentState] or STATES.idle
   local display = DISPLAY_NAME[currentState] or currentState
-  local live = ""
-  if currentState == "recording" or currentState == "transcribing" then
-    live = currentPreview
-  end
 
   barWidget.setGlyph(state.glyph)
   barWidget.setGlyphColor(state.color)
-  barWidget.setText(live ~= "" and truncate(live)
-                    or (showStateText and display or ""))
-
-  local detail = live
-  if detail == "" and currentState == "idle" then detail = lastTranscript end
-  local tooltip = "hyprdictate: " .. display
-  if detail ~= "" then tooltip = tooltip .. " · " .. truncate(detail) end
-  tooltip = tooltip .. " · left click to toggle, right click to cancel"
-  barWidget.setTooltip(tooltip)
+  barWidget.setText(showStateText and display or "")
+  barWidget.setTooltip(
+    "hyprdictate: " .. display ..
+    " · left click to toggle, right click to cancel"
+  )
   barWidget.setVisible(true)
+  publish()
+end
+
+local function setState(nextState, fromSnapshot)
+  local enteringRecording = nextState == "recording" and currentState ~= "recording"
+
+  if enteringRecording then
+    currentPreview = ""
+  elseif nextState == "cancelled" or nextState == "error" then
+    currentPreview = ""
+  elseif fromSnapshot and nextState == "idle" then
+    currentPreview = ""
+    lastTranscript = ""
+  end
+
+  currentState = nextState
+  render()
+
+  -- The panel closes itself on Idle/Cancelled/Error. Opening only on the
+  -- Recording edge keeps toggle semantics deterministic and also covers
+  -- keyboard-started sessions, not just clicks on the bar widget.
+  if enteringRecording then
+    noctalia.togglePanel(PANEL_ID)
+  end
 end
 
 local function onLine(line)
@@ -62,22 +83,13 @@ local function onLine(line)
 
   if event.event == "status" and type(event.state) == "string"
       and STATES[event.state] ~= nil then
-    currentState = event.state
-    currentPreview = ""
-    if currentState == "idle" then lastTranscript = "" end
-    render()
+    setState(event.state, true)
     return
   end
 
   if event.event == "state" and type(event.value) == "string"
       and STATES[event.value] ~= nil then
-    if event.value == "recording" and currentState ~= "recording" then
-      currentPreview = ""
-    elseif event.value == "cancelled" or event.value == "error" then
-      currentPreview = ""
-    end
-    currentState = event.value
-    render()
+    setState(event.value, false)
     return
   end
 
@@ -95,9 +107,6 @@ end
 local xdgRuntime = noctalia.getenv("XDG_RUNTIME_DIR")
 if xdgRuntime ~= nil and xdgRuntime ~= "" then
   local socketPath = xdgRuntime .. "/hyprdictate.sock"
-  -- The daemon and shell start independently during a graphical-session
-  -- switch. Reconnect once a second whenever nc exits so whichever starts
-  -- first eventually observes the other without reloading Noctalia.
   local script = "while true; do stdbuf -oL nc -U " ..
                  shellQuote(socketPath) .. "; sleep 1; done"
   noctalia.runStream("sh -c " .. shellQuote(script), onLine)

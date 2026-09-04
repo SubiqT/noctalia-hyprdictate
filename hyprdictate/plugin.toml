@@ -1,6 +1,5 @@
-# Bar widget for the hyprdictate voice dictation daemon + Hyprland
-# plugin. Shows recording state and lets the user click to toggle or
-# cancel.
+# Bar control and attached transcript panel for the hyprdictate daemon +
+# Hyprland plugin. The bar remains compact; wrapped live text lives in panel.
 #
 # The plugin id follows Noctalia's <author>/<plugin> convention.
 # Per the community-plugins layout, the directory name must match
@@ -9,18 +8,14 @@
 id           = "subiqt/hyprdictate"
 name         = "Hyprdictate"
 version      = "0.1.0"
-# `plugin_api` is what the current Noctalia runtime requires (post
-# commit 6b36320, 2026-07-16). `min_noctalia` is what the pre-
-# migration runtime requires. Both are declared so the manifest
-# validates against either runtime; each ignores the key it does
-# not know. Missing min_noctalia in v0.1 of noctalia-hyprwsmode
-# tripped the pre-migration runtime, so it lands here from commit
-# one.
-plugin_api   = 4
-min_noctalia = "5.0.0"
+# API 21 adds sticky scroll revision props used by the live transcript panel;
+# API 10 added keyboard_focus for non-interactive attached panels. Keeping the
+# panel unfocused avoids stealing keyboard input from the dictation target.
+plugin_api   = 21
+min_noctalia = "5.0.1"
 author       = "subiqt"
 license      = "MIT"
-description  = "Bar widget for hyprdictate: shows state and a live streaming transcript preview."
+description  = "Bar control and attached live transcript panel for hyprdictate."
 tags         = ["bar", "hyprland", "voice", "dictation", "indicator"]
 # `nc` streams the daemon's UNIX socket. OpenBSD-style netcat is required for
 # `-U`; NixOS ships this via libressl, and it is standard on Arch, Debian, and
@@ -41,9 +36,12 @@ entry = "hyprdictate.luau"
   description_key = "settings.show_state_text.description"
   default         = false
 
-  [[widget.setting]]
-  key             = "transcript_preview_length"
-  type            = "int"
-  label_key       = "settings.transcript_preview_length.label"
-  description_key = "settings.transcript_preview_length.description"
-  default         = 60
+[[panel]]
+id                       = "preview"
+entry                    = "preview.luau"
+width                    = 520
+height                   = 280
+placement                = "attached"
+position                 = "auto"
+keyboard_focus           = "none"
+dismiss_on_outside_click = false

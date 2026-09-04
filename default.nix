@@ -33,6 +33,7 @@ stdenvNoCC.mkDerivation {
   doCheck = true;
   checkPhase = ''
     lua tests/widget_test.lua
+    lua tests/panel_test.lua
   '';
 
   # No build. Copy the plugin directory verbatim so Noctalia's

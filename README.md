@@ -2,9 +2,8 @@
 
 [Noctalia](https://noctalia.dev) bar widget for the
 [hyprdictate](https://github.com/SubiqT/hyprdictate) voice dictation
-daemon and its Hyprland compositor plugin. Shows dictation state and a live,
-replaceable Moonshine transcript while you speak, lets you toggle with a left
-click, and cancels with a right click.
+daemon and its Hyprland compositor plugin. Keeps a compact state glyph in the
+bar and opens an attached, wrapped Moonshine transcript panel while you speak.
 
 ## Behaviour
 
@@ -19,10 +18,11 @@ click, and cancels with a right click.
   compositor plugin. Starts / stops dictation. Because the dispatcher lives in
   the compositor plugin, it captures the focused window on the Recording edge
   and injects into that same window when the final transcript arrives.
-- **Live transcript**: while recording or finalizing, replaceable partial text
-  appears beside the glyph and in the tooltip. Partial hypotheses are preview
-  only; hyprdictate injects only Moonshine's finalized result. The last final
-  transcript remains in the idle tooltip until the next recording starts.
+- **Live transcript panel**: opens automatically when recording begins,
+  including sessions started with `Super+H`. Partial hypotheses wrap inside an
+  attached scrollable panel and preserve newlines. Transcript text never
+  renders inline, so bar spacing stays stable. Only Moonshine's finalized
+  result is injected into the target application.
 - **Right click**: `hl.plugin.hyprdictate.cancel()`. Discards any
   in-flight recording.
 - **Hover tooltip**: `hyprdictate: <state> · left click to toggle,
@@ -123,8 +123,10 @@ configuration:
 
 | Setting                     | Type   | Default | Description                                                                                              |
 | ---                         | ---    | ---     | ---                                                                                                      |
-| `show_state_text`           | `bool` | `false` | Show the state name (Idle, Recording, Transcribing, …) next to the glyph.                                |
-| `transcript_preview_length` | `int`  | `60`    | Maximum characters of the live or last finalized transcript shown in bar text and tooltip.                          |
+| `show_state_text` | `bool` | `false` | Show the state name next to the glyph. The transcript always remains in the panel. |
+
+The transcript panel is 520×280 logical pixels, attached to Noctalia's panel
+anchor bar, non-interactive, and scrolls as wrapped content grows.
 
 Colours follow Noctalia's palette roles so they track theme
 changes automatically.
@@ -143,16 +145,18 @@ are picked up on the next config reload.
 
 ## How it works
 
-At load, the widget opens `$XDG_RUNTIME_DIR/hyprdictate.sock` through a
+At load, the bar entry opens `$XDG_RUNTIME_DIR/hyprdictate.sock` through a
 reconnecting `nc -U` loop and consumes the daemon's line-delimited JSON:
 
-- `{"event":"state","value":"recording"}` updates the state.
-- `{"event":"transcript","text":"…","final":false}` replaces the live preview.
+- `{"event":"state","value":"recording"}` updates the glyph and opens the panel.
+- `{"event":"transcript","text":"…","final":false}` replaces the panel buffer.
 - `{"event":"transcript","text":"…","final":true}` records the finalized transcript.
 
-Whenever an event arrives the widget re-renders; there is no polling interval.
-Click actions call `hyprctl` with `hl.plugin.hyprdictate.<action>()` and let the
-compositor plugin capture the target window and inject only finalized text.
+The bar and panel run in separate Luau runtimes. The bar publishes each snapshot
+through `noctalia.state`; `preview.luau` watches that state and re-renders a
+scrollable unlimited-line label. On Idle, Cancelled, or Error it closes itself.
+Click actions call `hyprctl` with `hl.plugin.hyprdictate.<action>()`; the
+compositor plugin captures the target window and injects only finalized text.
 
 ## Non-goals
 

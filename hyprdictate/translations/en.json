@@ -1,6 +1,8 @@
 {
   "settings.show_state_text.label": "Show state text",
   "settings.show_state_text.description": "Display the state name (idle, recording, transcribing) next to the glyph. Off by default; the glyph alone is usually enough.",
-  "settings.transcript_preview_length.label": "Transcript preview length",
-  "settings.transcript_preview_length.description": "Maximum characters of the live or last finalized transcript shown in the bar and tooltip."
+  "panel.title": "Live transcript",
+  "panel.listening": "Listening…",
+  "panel.finalizing": "Finalizing transcript…",
+  "panel.empty": "No speech detected yet."
 }
